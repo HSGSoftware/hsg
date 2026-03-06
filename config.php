@@ -22,11 +22,12 @@ define('APP_NAME', 'HSG Aviation Teklif Sistemi');
 define('APP_VERSION', '2.0.0');
 define('BASE_PATH', __DIR__);
 
-// URL tespiti
+// URL tespiti — config.php her zaman uygulama kökünde olduğu için __DIR__ kullanılır
 $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
 $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-$baseDir = rtrim(str_replace('/index.php', '', $scriptDir), '/');
+$docRoot = rtrim(str_replace('\\', '/', realpath($_SERVER['DOCUMENT_ROOT'] ?? '')), '/');
+$appRoot = rtrim(str_replace('\\', '/', realpath(__DIR__)), '/');
+$baseDir = ($docRoot && strpos($appRoot, $docRoot) === 0) ? substr($appRoot, strlen($docRoot)) : '';
 define('BASE_URL', $protocol . '://' . $host . $baseDir);
 
 // Zaman dilimi
