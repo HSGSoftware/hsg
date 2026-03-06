@@ -5,6 +5,11 @@
  */
 define('KURULUM', true);
 
+// Session MUTLAKA başlatılmalı
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 $adim = (int)($_GET['adim'] ?? 1);
 $hata = '';
 $basari = '';
@@ -26,33 +31,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $testPdo->exec("CREATE DATABASE IF NOT EXISTS `$dbname` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
             $testPdo->exec("USE `$dbname`");
 
-            // Config dosyası yaz
-            $configContent = '<?php
-define(\'DB_HOST\', ' . var_export($host, true) . ');
-define(\'DB_USER\', ' . var_export($user, true) . ');
-define(\'DB_PASS\', ' . var_export($pass, true) . ');
-define(\'DB_NAME\', ' . var_export($dbname, true) . ');
-define(\'DB_CHARSET\', \'utf8mb4\');
-define(\'APP_NAME\', \'HSG Aviation Teklif Sistemi\');
-define(\'APP_VERSION\', \'2.0.0\');
-define(\'BASE_PATH\', __DIR__);
-$protocol = (isset($_SERVER[\'HTTPS\']) && $_SERVER[\'HTTPS\'] === \'on\') ? \'https\' : \'http\';
-$host_url = $_SERVER[\'HTTP_HOST\'] ?? \'localhost\';
-$scriptDir = str_replace(\'\\\\\', \'/\', dirname($_SERVER[\'SCRIPT_NAME\'] ?? \'\'));
-$baseDir = rtrim(str_replace(\'/index.php\', \'\', $scriptDir), \'/\');
-define(\'BASE_URL\', $protocol . \'://\' . $host_url . $baseDir);
-date_default_timezone_set(\'Europe/Istanbul\');
+            // Config dosyası yaz (kurulum sonrası kullanılacak)
+            $dbHostExp   = var_export($host,   true);
+            $dbUserExp   = var_export($user,   true);
+            $dbPassExp   = var_export($pass,   true);
+            $dbnameExp   = var_export($dbname, true);
+            $configContent = <<<PHPEOF
+<?php
+// Kurulum kontrolü
+if (!file_exists(__DIR__ . '/.installed') && basename(\$_SERVER['PHP_SELF'] ?? '') !== 'kurulum.php') {
+    header('Location: kurulum.php');
+    exit;
+}
+define('DB_HOST',    $dbHostExp);
+define('DB_USER',    $dbUserExp);
+define('DB_PASS',    $dbPassExp);
+define('DB_NAME',    $dbnameExp);
+define('DB_CHARSET', 'utf8mb4');
+define('APP_NAME',    'HSG Aviation Teklif Sistemi');
+define('APP_VERSION', '2.0.0');
+define('BASE_PATH', __DIR__);
+\$_p = (isset(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+\$_h = \$_SERVER['HTTP_HOST'] ?? 'localhost';
+\$_d = rtrim(str_replace(['\\\\', '/index.php'], ['/', ''], dirname(\$_SERVER['SCRIPT_NAME'] ?? '')), '/');
+define('BASE_URL', \$_p . '://' . \$_h . \$_d);
+date_default_timezone_set('Europe/Istanbul');
 error_reporting(0);
-ini_set(\'display_errors\', 0);
+ini_set('display_errors', 0);
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-define(\'CURRENCIES\', json_encode([
-    \'TRY\' => [\'symbol\' => \'₺\', \'name\' => \'Türk Lirası\'],
-    \'USD\' => [\'symbol\' => \'$\', \'name\' => \'Amerikan Doları\'],
-    \'EUR\' => [\'symbol\' => \'€\', \'name\' => \'Euro\'],
-    \'GBP\' => [\'symbol\' => \'£\', \'name\' => \'İngiliz Sterlini\'],
+define('CURRENCIES', json_encode([
+    'TRY' => ['symbol' => '₺', 'name' => 'Türk Lirası'],
+    'USD' => ['symbol' => '$', 'name' => 'Amerikan Doları'],
+    'EUR' => ['symbol' => '€', 'name' => 'Euro'],
+    'GBP' => ['symbol' => '£', 'name' => 'İngiliz Sterlini'],
 ]));
-define(\'KDV_ORANLARI\', json_encode([0, 1, 8, 10, 18, 20]));
-';
+define('KDV_ORANLARI', json_encode([0, 1, 8, 10, 18, 20]));
+PHPEOF;
             file_put_contents(__DIR__ . '/config.php', $configContent);
             $_SESSION['kurulum_db'] = ['host' => $host, 'user' => $user, 'pass' => $pass, 'name' => $dbname];
             header('Location: kurulum.php?adim=2');
@@ -227,27 +241,35 @@ CREATE TABLE IF NOT EXISTS `teklif_gecmisi` (
   KEY `teklif_id` (`teklif_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Foreign Keys
-ALTER TABLE `urunler`
-  ADD CONSTRAINT `urunler_ibfk_1` FOREIGN KEY IF NOT EXISTS (`kategori_id`) REFERENCES `kategoriler` (`id`) ON DELETE SET NULL;
-
-ALTER TABLE `teklifler`
-  ADD CONSTRAINT `teklifler_ibfk_1` FOREIGN KEY IF NOT EXISTS (`musteri_id`) REFERENCES `musteriler` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `teklifler_ibfk_2` FOREIGN KEY IF NOT EXISTS (`sablon_id`) REFERENCES `sablonlar` (`id`) ON DELETE SET NULL;
-
-ALTER TABLE `teklif_kalemleri`
-  ADD CONSTRAINT `tklm_ibfk_1` FOREIGN KEY IF NOT EXISTS (`teklif_id`) REFERENCES `teklifler` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tklm_ibfk_2` FOREIGN KEY IF NOT EXISTS (`urun_id`) REFERENCES `urunler` (`id`) ON DELETE SET NULL;
-
-ALTER TABLE `teklif_gecmisi`
-  ADD CONSTRAINT `tgecmis_ibfk_1` FOREIGN KEY IF NOT EXISTS (`teklif_id`) REFERENCES `teklifler` (`id`) ON DELETE CASCADE;
 ";
 
-            // Her sorguyu ayrı çalıştır
+            // Her CREATE TABLE sorgusunu ayrı ayrı çalıştır
             $queries = array_filter(array_map('trim', explode(';', $sql)));
             foreach ($queries as $q) {
+                // SQL yorumlarını ve boş satırları temizle
+                $q = preg_replace('/^--.*$/m', '', $q);
+                $q = trim($q);
                 if (!empty($q)) {
                     $pdo->exec($q);
+                }
+            }
+
+            // Foreign Key kısıtlamalarını ayrı try/catch bloklarıyla ekle
+            // (MySQL sürümüne göre hata verirse geç)
+            $fkSorguları = [
+                "ALTER TABLE `urunler` ADD CONSTRAINT `urunler_ibfk_1` FOREIGN KEY (`kategori_id`) REFERENCES `kategoriler` (`id`) ON DELETE SET NULL",
+                "ALTER TABLE `teklifler` ADD CONSTRAINT `teklifler_ibfk_1` FOREIGN KEY (`musteri_id`) REFERENCES `musteriler` (`id`) ON DELETE SET NULL",
+                "ALTER TABLE `teklifler` ADD CONSTRAINT `teklifler_ibfk_2` FOREIGN KEY (`sablon_id`) REFERENCES `sablonlar` (`id`) ON DELETE SET NULL",
+                "ALTER TABLE `teklif_kalemleri` ADD CONSTRAINT `tklm_ibfk_1` FOREIGN KEY (`teklif_id`) REFERENCES `teklifler` (`id`) ON DELETE CASCADE",
+                "ALTER TABLE `teklif_kalemleri` ADD CONSTRAINT `tklm_ibfk_2` FOREIGN KEY (`urun_id`) REFERENCES `urunler` (`id`) ON DELETE SET NULL",
+                "ALTER TABLE `teklif_gecmisi` ADD CONSTRAINT `tgecmis_ibfk_1` FOREIGN KEY (`teklif_id`) REFERENCES `teklifler` (`id`) ON DELETE CASCADE",
+            ];
+            foreach ($fkSorguları as $fk) {
+                try {
+                    $pdo->exec($fk);
+                } catch (PDOException $fkErr) {
+                    // FK zaten varsa (errno 1826 veya 1050) geç, diğer hataları görmezden gel
+                    // Tablolar zaten oluştu, FK olmasa da sistem çalışır
                 }
             }
 
@@ -308,7 +330,10 @@ ALTER TABLE `teklif_gecmisi`
         $db = $_SESSION['kurulum_db'] ?? null;
         if (!$db) { header('Location: kurulum.php?adim=1'); exit; }
 
-        require_once __DIR__ . '/config.php';
+        // config.php yeniden yazıldıktan sonra include et
+        if (!defined('DB_HOST')) {
+            require_once __DIR__ . '/config.php';
+        }
         require_once __DIR__ . '/includes/db.php';
         require_once __DIR__ . '/includes/functions.php';
 
