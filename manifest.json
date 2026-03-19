@@ -1,0 +1,27 @@
+{
+  "name": "FinansAI - Akıllı Bütçe Asistanı",
+  "short_name": "FinansAI",
+  "description": "Yapay Zeka Destekli Kişisel Finans ve Akıllı Bütçe Optimizasyonu",
+  "start_url": "./init_db.php",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
+  "lang": "tr",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
